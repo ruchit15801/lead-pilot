@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/v1/cron/outreach",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/v1/cron/scraper",
+      "schedule": "0 1 * * *"
+    }
+  ]
+}
