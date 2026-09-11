@@ -9,7 +9,7 @@ import { Input, NativeSelect } from "@/components/ui/input";
 import { useApi } from "@/hooks/use-api";
 import { LEAD_STATUSES, type Lead } from "@/lib/types";
 import { STATUS_LABEL } from "@/lib/status";
-import { Search, Filter, SortDesc, Calendar, Star } from "lucide-react";
+import { Search, Filter, SortDesc, Calendar, Star, Trash2, CheckCircle2, XCircle } from "lucide-react";
 
 export default function LeadsPage() {
   const [q, setQ] = useState("");
@@ -20,30 +20,57 @@ export default function LeadsPage() {
   const query = useMemo(() => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
-    if (statusTab !== "all") params.set("status", statusTab);
     if (service) params.set("service", service);
     const qs = params.toString();
     return `/leads${qs ? `?${qs}` : ""}`;
-  }, [q, statusTab, service]);
+  }, [q, service]);
 
-  const { data, error, loading } = useApi<Lead[]>(query);
+  const { data, error, loading, setData } = useApi<Lead[]>(query);
   const { data: settings } = useApi<any>("/settings");
 
   const sortedData = useMemo(() => {
     if (!data) return [];
-    return [...data].sort((a, b) => {
+    
+    let filtered = data;
+    if (statusTab === "pending") {
+      filtered = data.filter(l => ["new", "review", "needs_research"].includes(l.status));
+    } else if (statusTab === "approved") {
+      filtered = data.filter(l => ["queued", "contacted", "replied", "meeting_booked"].includes(l.status));
+    } else if (statusTab === "rejected") {
+      filtered = data.filter(l => ["discarded", "lost"].includes(l.status));
+    }
+
+    return filtered.sort((a, b) => {
       if (sortParam === "score") return b.score - a.score;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [data, sortParam]);
+  }, [data, sortParam, statusTab]);
 
   const tabs = [
     { id: "all", label: "All Leads" },
-    { id: "new", label: "New Leads" },
-    { id: "queued", label: "In Campaign" },
-    { id: "contacted", label: "Contacted" },
-    { id: "lost", label: "Lost/Discarded" }
+    { id: "pending", label: "Pending" },
+    { id: "approved", label: "Approved" },
+    { id: "rejected", label: "Rejected" }
   ];
+
+  const handleApprove = async (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    setData((prev) => prev ? prev.map(l => l.id === id ? { ...l, status: "queued" } : l) : []);
+    fetch(`/api/v1/leads/${id}`, { method: "PATCH", body: JSON.stringify({ status: "queued" }) });
+  };
+
+  const handleReject = async (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    setData((prev) => prev ? prev.map(l => l.id === id ? { ...l, status: "discarded" } : l) : []);
+    fetch(`/api/v1/leads/${id}`, { method: "PATCH", body: JSON.stringify({ status: "discarded" }) });
+  };
+
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!confirm("Are you sure you want to delete this lead?")) return;
+    setData((prev) => prev ? prev.filter(l => l.id !== id) : []);
+    fetch(`/api/v1/leads/${id}`, { method: "DELETE" });
+  };
 
   return (
     <div className="space-y-6">
@@ -140,6 +167,7 @@ export default function LeadsPage() {
                   <th className="px-5 py-4 font-semibold">Contact Details</th>
                   <th className="px-5 py-4 font-semibold">Status</th>
                   <th className="px-5 py-4 font-semibold text-center">Score</th>
+                  <th className="px-5 py-4 font-semibold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -179,6 +207,19 @@ export default function LeadsPage() {
                         {lead.score}
                       </div>
                     </td>
+                    <td className="px-5 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={(e) => handleApprove(lead.id, e)} className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-md transition-colors" title="Approve Lead">
+                          <CheckCircle2 className="h-4 w-4" />
+                        </button>
+                        <button onClick={(e) => handleReject(lead.id, e)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-md transition-colors" title="Reject Lead">
+                          <XCircle className="h-4 w-4" />
+                        </button>
+                        <button onClick={(e) => handleDelete(lead.id, e)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-md transition-colors" title="Delete Lead">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -200,9 +241,22 @@ export default function LeadsPage() {
                         {lead.score}
                       </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-                      <ServiceLabel service={lead.service} />
-                      <StatusBadge status={lead.status} />
+                    <div className="mt-4 flex items-center justify-between">
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <ServiceLabel service={lead.service} />
+                        <StatusBadge status={lead.status} />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button onClick={(e) => handleApprove(lead.id, e)} className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-md transition-colors">
+                          <CheckCircle2 className="h-4 w-4" />
+                        </button>
+                        <button onClick={(e) => handleReject(lead.id, e)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-md transition-colors">
+                          <XCircle className="h-4 w-4" />
+                        </button>
+                        <button onClick={(e) => handleDelete(lead.id, e)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-md transition-colors">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
