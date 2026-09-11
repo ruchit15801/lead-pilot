@@ -1,8 +1,1 @@
-import { discoverLeads } from "./src/server/services/scraperService";
-
-async function run() {
-  const leads = await discoverLeads([{ service: "Web Development", query: "web development company" }], { maxResults: 5 });
-  console.log(JSON.stringify(leads, null, 2));
-}
-
-run();
+import { discoverLeads } from "./src/server/services/scraperService"; async function run() { const leads = await discoverLeads([{ service: "Web Development", query: "web development" }], { maxResults: 5 }); console.log("Leads found:", leads.length); console.log(leads.map(l => l.name + " - " + l.sourceUrl)); } run().catch(console.error);

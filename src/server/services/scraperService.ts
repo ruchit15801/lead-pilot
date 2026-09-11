@@ -34,8 +34,26 @@ export interface ScrapedLead {
 const GLOBAL_CITIES = [
   "New York", "San Francisco", "London", "Austin", "Los Angeles",
   "Chicago", "Toronto", "Sydney", "Berlin", "Singapore",
-  "Seattle", "Boston", "Denver", "Miami", "Dubai"
+  "Seattle", "Boston", "Denver", "Miami", "Dubai", "Vancouver",
+  "Dallas", "Atlanta", "Melbourne", "Dublin", "Amsterdam", "Paris",
+  "Stockholm", "Tokyo", "Mumbai", "Bangalore", "San Diego", "Houston",
+  "Philadelphia", "Phoenix", "San Antonio", "San Jose", "Charlotte",
+  "Manchester", "Birmingham", "Edinburgh", "Glasgow", "Bristol",
+  "Montreal", "Calgary", "Ottawa", "Edmonton", "Brisbane", "Perth",
+  "Auckland", "Wellington", "Christchurch", "Munich", "Frankfurt",
+  "Hamburg", "Stuttgart", "Zurich", "Geneva", "Vienna", "Copenhagen",
+  "Oslo", "Helsinki", "Barcelona", "Madrid", "Milan", "Rome"
 ];
+
+const MODIFIERS = [
+  "top", "best", "expert", "professional", "services", "agency", "company",
+  "award winning", "boutique", "consulting", "specialists", "innovative",
+  "b2b", "solutions", "firm", "group", "partners"
+];
+
+function getRandom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -59,7 +77,7 @@ async function fetchHtml(url: string): Promise<string> {
           "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
           "Accept-Language": "en-US,en;q=0.5",
         },
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(8_000),
       });
       if (!response.ok) {
         if (isRetriableHttp(response.status) || response.status === 403) {
@@ -69,7 +87,7 @@ async function fetchHtml(url: string): Promise<string> {
       }
       return response.text();
     },
-    { maxAttempts: 2, baseDelayMs: 2000 },
+    { maxAttempts: 2, baseDelayMs: 1000 },
   );
 }
 
@@ -139,22 +157,17 @@ export async function searchDuckDuckGo(query: string, limit = 10): Promise<Searc
 }
 
 async function universalSearch(query: string, maxResults = 10): Promise<SearchResult[]> {
-  try {
-    const res = await searchBing(query, maxResults);
-    if (res.length > 0) return res;
-  } catch (e) { /* ignore fallback */ }
+  const promises = [
+    searchDuckDuckGo(query, maxResults).catch(() => []),
+    searchBing(query, maxResults).catch(() => []),
+    searchYahoo(query, maxResults).catch(() => []),
+  ];
   
-  try {
-    const res = await searchYahoo(query, maxResults);
-    if (res.length > 0) return res;
-  } catch (e) { /* ignore fallback */ }
-  
-  try {
-    const res = await searchDuckDuckGo(query, maxResults);
-    if (res.length > 0) return res;
-  } catch (e) { /* ignore fallback */ }
-
-  return [];
+  const results = await Promise.all(promises);
+  const combined = results.flat();
+  // Deduplicate by URL
+  const unique = Array.from(new Map(combined.map(r => [r.url, r])).values());
+  return unique.slice(0, maxResults);
 }
 
 
@@ -378,17 +391,22 @@ export async function scrapeContactsFromUrl(pageUrl: string): Promise<ExtractedC
   }
 }
 
-function generateDorks(baseQuery: string, city: string): string[] {
+function generateDorks(baseQuery: string): string[] {
+  const city = getRandom(GLOBAL_CITIES);
+  const city2 = getRandom(GLOBAL_CITIES);
+  const mod = getRandom(MODIFIERS);
+  const mod2 = getRandom(MODIFIERS);
+
   return [
-    `${baseQuery} "${city}"`,
-    `site:clutch.co/profile ${baseQuery}`,
-    `site:upwork.com/agencies ${baseQuery}`,
-    `site:weworkremotely.com ${baseQuery}`,
-    `site:wellfound.com/company ${baseQuery}`,
-    `site:crunchbase.com/organization ${baseQuery}`,
-    `site:trustpilot.com/review ${baseQuery}`,
-    `site:fiverr.com ${baseQuery} agency`,
-    `${baseQuery} agency ${city}`
+    `${mod} ${baseQuery} ${city}`,
+    `site:clutch.co/profile "${baseQuery}" "${city}"`,
+    `site:upwork.com/agencies "${baseQuery}"`,
+    `site:linkedin.com/company "${baseQuery}" "${mod}"`,
+    `"${baseQuery}" ${mod2} ${city2}`,
+    `site:crunchbase.com/organization "${baseQuery}"`,
+    `site:trustpilot.com/review "${baseQuery}"`,
+    `"${baseQuery}" "${city}" "contact"`,
+    `${baseQuery} ${mod} in ${city}`
   ];
 }
 
@@ -410,13 +428,12 @@ export async function discoverLeads(
   for (let queryIndex = 0; queryIndex < queries.length; queryIndex++) {
     if (leads.length >= maxResults || isTimedOut()) break;
     const baseQuery = queries[queryIndex];
-    const city = GLOBAL_CITIES[queryIndex % GLOBAL_CITIES.length];
     
-    // Generate massive Dork expansion and pick top 3 to avoid search engine rate limits
-    const dorks = generateDorks(baseQuery.query, city).sort(() => Math.random() - 0.5).slice(0, 3);
+    // Generate massive Dork expansion and pick top 4 randomly
+    const dorks = generateDorks(baseQuery.query).sort(() => Math.random() - 0.5).slice(0, 4);
 
     // Run dork searches concurrently
-    const searchPromises = dorks.map(dork => universalSearch(dork, 10).catch(() => [] as SearchResult[]));
+    const searchPromises = dorks.map(dork => universalSearch(dork, 15).catch(() => [] as SearchResult[]));
     const searchResultsArrays = await Promise.all(searchPromises);
     const allResults = searchResultsArrays.flat();
     
